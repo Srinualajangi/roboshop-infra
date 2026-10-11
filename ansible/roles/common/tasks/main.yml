@@ -1,0 +1,34 @@
+---
+- name: Enable the Node.js module stream
+  ansible.builtin.dnf:
+    name: "@nodejs:{{ node_stream }}/common"
+    state: present
+
+- name: Install build and runtime packages
+  ansible.builtin.dnf:
+    name:
+      - git
+      - acl
+      - gcc
+      - python3-devel
+      - policycoreutils-python-utils
+      - java-17-openjdk-devel
+      - maven
+      - golang
+      - nginx
+    state: present
+
+- name: Service account that owns and runs RoboShop
+  ansible.builtin.user:
+    name: "{{ roboshop_user }}"
+    system: true
+    home: "{{ roboshop_root }}"
+    create_home: true
+    shell: /sbin/nologin
+
+- name: Allow nginx (httpd_t) to connect to upstream ports when SELinux is on
+  ansible.posix.seboolean:
+    name: httpd_can_network_connect
+    state: true
+    persistent: true
+  when: ansible_selinux.status == "enabled"

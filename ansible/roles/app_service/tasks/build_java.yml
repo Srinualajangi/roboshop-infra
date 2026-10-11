@@ -1,0 +1,35 @@
+---
+- name: "{{ svc.name }} | copy source to build dir"
+  ansible.builtin.copy:
+    src: "{{ roboshop_app_src }}/{{ svc.name }}/"
+    dest: "{{ roboshop_build_dir }}/{{ svc.name }}/"
+    remote_src: true
+  become: false
+  register: java_src
+
+- name: "{{ svc.name }} | does the jar exist?"
+  ansible.builtin.stat:
+    path: "{{ roboshop_build_dir }}/{{ svc.name }}/target/{{ svc.name }}-1.0.jar"
+  register: jar
+
+- name: "{{ svc.name }} | mvn package (only when source changed or no jar)"
+  ansible.builtin.command: mvn -q -DskipTests package
+  args:
+    chdir: "{{ roboshop_build_dir }}/{{ svc.name }}"
+  become: false
+  when: java_src.changed or not jar.stat.exists
+  changed_when: true
+
+- name: "{{ svc.name }} | install jar"
+  ansible.builtin.copy:
+    src: "{{ roboshop_build_dir }}/{{ svc.name }}/target/{{ svc.name }}-1.0.jar"
+    dest: "{{ app_dir }}/{{ svc.name }}.jar"
+    remote_src: true
+    owner: "{{ roboshop_user }}"
+    group: "{{ roboshop_user }}"
+    mode: "0644"
+  register: java_art
+
+- name: "{{ svc.name }} | remember whether the app changed"
+  ansible.builtin.set_fact:
+    app_changed: "{{ java_art.changed }}"

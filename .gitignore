@@ -1,0 +1,13 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfplan
+override.tf
+override.tf.json
+# never commit secrets
+*.pem
+*.key
+.env
+*.auto.tfvars.json

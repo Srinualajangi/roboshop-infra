@@ -1,0 +1,67 @@
+# Variables for every host. Source of truth for ports/env: roboshop-app/docs/service-catalog.md
+roboshop_user: roboshop
+roboshop_root: /opt/roboshop
+roboshop_app_src: /home/ec2-user/work/roboshop-app
+roboshop_build_dir: /home/ec2-user/build
+node_stream: "20"
+
+mysql_root_password: "RoboShop@Lab1"   # Day 21 replaces this with an SSM Parameter Store lookup
+
+datastores:
+  - name: redis
+    image: redis:6.2-alpine
+    ports: ["127.0.0.1:6379:6379"]
+  - name: mongodb
+    image: mongo:5
+    ports: ["127.0.0.1:27017:27017"]
+    volumes: ["{{ roboshop_app_src }}/mongo:/docker-entrypoint-initdb.d:ro"]
+  - name: rabbitmq
+    image: rabbitmq:3.8-management-alpine
+    ports: ["127.0.0.1:5672:5672", "127.0.0.1:15672:15672"]
+
+roboshop_services:
+  - name: catalogue
+    type: node
+    port: 8081
+    env:
+      CATALOGUE_SERVER_PORT: "8081"
+      MONGO_URL: mongodb://127.0.0.1:27017/catalogue
+  - name: user
+    type: node
+    port: 8082
+    env:
+      USER_SERVER_PORT: "8082"
+      MONGO_URL: mongodb://127.0.0.1:27017/users
+      REDIS_HOST: 127.0.0.1
+  - name: cart
+    type: node
+    port: 8083
+    env:
+      CART_SERVER_PORT: "8083"
+      REDIS_HOST: 127.0.0.1
+      CATALOGUE_HOST: 127.0.0.1
+      CATALOGUE_PORT: "8081"
+  - name: shipping
+    type: java
+    port: 8084
+    after: [roboshop-cart.service]
+    restart_sec: 10
+    env:
+      SERVER_PORT: "8084"
+      DB_HOST: 127.0.0.1
+      CART_ENDPOINT: 127.0.0.1:8083
+  - name: payment
+    type: python
+    port: 8085
+    files: [payment.py, rabbitmq.py]
+    after: [roboshop-cart.service, roboshop-user.service]
+    env:
+      CART_HOST: 127.0.0.1
+      CART_PORT: "8083"
+      USER_HOST: 127.0.0.1
+      USER_PORT: "8082"
+      AMQP_HOST: 127.0.0.1
+  - name: dispatch
+    type: go
+    env:
+      AMQP_HOST: 127.0.0.1

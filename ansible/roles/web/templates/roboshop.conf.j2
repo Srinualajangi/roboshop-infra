@@ -1,0 +1,22 @@
+# {{ ansible_managed }}
+server {
+    listen {{ web_port }} default_server;
+    server_name _;
+    proxy_http_version 1.1;
+
+    location / {
+        root  {{ web_root }};
+        index index.html;
+        ssi   on;
+    }
+    location /images/ {
+        expires 5s;
+        root {{ web_root }};
+        try_files $uri /images/placeholder.png;
+    }
+{% for s in roboshop_services if s.port is defined %}
+    location /api/{{ s.name }}/ { proxy_pass http://127.0.0.1:{{ s.port }}/; }
+{% endfor %}
+    location /api/ratings/ { proxy_pass http://127.0.0.1:{{ ratings_port }}/; }
+    location /nginx_status { stub_status on; access_log off; allow 127.0.0.1; deny all; }
+}

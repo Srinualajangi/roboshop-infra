@@ -1,0 +1,22 @@
+---
+- name: "{{ svc.name }} | copy source"
+  ansible.builtin.copy:
+    src: "{{ roboshop_app_src }}/{{ svc.name }}/{{ item }}"
+    dest: "{{ app_dir }}/{{ item }}"
+    remote_src: true
+    owner: "{{ roboshop_user }}"
+    group: "{{ roboshop_user }}"
+    mode: "0644"
+  loop: [package.json, server.js]
+  register: node_src
+
+- name: "{{ svc.name }} | npm install (production deps)"
+  community.general.npm:
+    path: "{{ app_dir }}"
+    production: true
+  become_user: "{{ roboshop_user }}"
+  register: node_deps
+
+- name: "{{ svc.name }} | remember whether the app changed"
+  ansible.builtin.set_fact:
+    app_changed: "{{ node_src.changed or node_deps.changed }}"

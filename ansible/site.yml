@@ -1,0 +1,31 @@
+---
+# Legacy RoboShop on plain Linux hosts. Run: ansible-playbook site.yml
+- name: Base OS and datastores
+  hosts: legacy
+  become: true
+  roles:
+    - role: common
+      tags: [common]
+    - role: datastores
+      tags: [datastores]
+
+- name: Application services
+  hosts: legacy
+  become: true
+  tasks:
+    - name: Deploy each RoboShop service
+      ansible.builtin.include_role:
+        name: app_service
+        apply:
+          tags: [apps]
+      loop: "{{ roboshop_services }}"
+      loop_control:
+        loop_var: svc
+        label: "{{ svc.name }}"
+      tags: [apps]
+- name: Web tier (nginx)
+  hosts: legacy
+  become: true
+  roles:
+    - role: web
+      tags: [web]

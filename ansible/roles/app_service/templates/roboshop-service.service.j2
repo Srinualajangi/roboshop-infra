@@ -1,0 +1,23 @@
+# {{ ansible_managed }}
+[Unit]
+Description=RoboShop {{ svc.name }} ({{ svc.type }})
+After=network-online.target docker.service {{ svc.after | default([]) | join(' ') }}
+Wants=network-online.target
+
+[Service]
+User={{ roboshop_user }}
+Group={{ roboshop_user }}
+WorkingDirectory={{ app_dir }}
+{% for key, value in (svc.env | default({})).items() %}
+Environment={{ key }}={{ value }}
+{% endfor %}
+ExecStart={{ svc.exec | default(app_exec_defaults[svc.type]) }}
+{% if svc.type == 'java' %}
+# the JVM exits with 143 (128+SIGTERM) on a normal stop
+SuccessExitStatus=143
+{% endif %}
+Restart=on-failure
+RestartSec={{ svc.restart_sec | default(5) }}
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,40 @@
+---
+- name: Private Docker network for the datastores
+  community.docker.docker_network:
+    name: roboshop
+
+- name: Password-free datastores
+  community.docker.docker_container:
+    name: "{{ item.name }}"
+    image: "{{ item.image }}"
+    networks: [{ name: roboshop }]
+    published_ports: "{{ item.ports }}"
+    volumes: "{{ item.volumes | default(omit) }}"
+    restart_policy: unless-stopped
+    state: started
+  loop: "{{ datastores }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: MySQL seeded with cities + ratings
+  community.docker.docker_container:
+    name: mysql
+    image: mysql:5.7
+    networks: [{ name: roboshop }]
+    published_ports: ["127.0.0.1:3306:3306"]
+    volumes: ["{{ roboshop_app_src }}/mysql/scripts:/docker-entrypoint-initdb.d:ro"]
+    env:
+      MYSQL_ROOT_PASSWORD: "{{ mysql_root_password }}"
+      MYSQL_DATABASE: cities
+      MYSQL_USER: shipping
+      MYSQL_PASSWORD: secret
+    restart_policy: unless-stopped
+    state: started
+
+- name: Wait until the MySQL seed has finished (first start takes 1-2 min)
+  ansible.builtin.command: docker exec mysql mysql -ushipping -psecret -e "SELECT 1 FROM cities.cities LIMIT 1"
+  register: mysql_ready
+  until: mysql_ready.rc == 0
+  retries: 40
+  delay: 5
+  changed_when: false

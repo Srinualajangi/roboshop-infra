@@ -1,0 +1,6 @@
+# Lint config. Every skip needs a reason.
+profile: moderate
+skip_list:
+  - name[template]   # service name in the middle of task names makes per-service output readable
+exclude_paths:
+  - collections/

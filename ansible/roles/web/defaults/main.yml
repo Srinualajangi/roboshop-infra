@@ -1,0 +1,4 @@
+---
+web_port: 80
+web_root: "{{ roboshop_root }}/web"
+ratings_port: 8086

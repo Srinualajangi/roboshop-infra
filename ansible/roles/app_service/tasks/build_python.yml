@@ -1,0 +1,39 @@
+---
+- name: "{{ svc.name }} | copy python sources"
+  ansible.builtin.copy:
+    src: "{{ roboshop_app_src }}/{{ svc.name }}/{{ item }}"
+    dest: "{{ app_dir }}/{{ item }}"
+    remote_src: true
+    owner: "{{ roboshop_user }}"
+    group: "{{ roboshop_user }}"
+    mode: "0644"
+  loop: "{{ svc.files }}"
+  register: py_src
+
+- name: "{{ svc.name }} | pinned requirements"
+  ansible.builtin.copy:
+    src: payment-requirements.lock.txt
+    dest: "{{ app_dir }}/requirements.lock.txt"
+    owner: "{{ roboshop_user }}"
+    mode: "0644"
+  register: py_req
+
+- name: "{{ svc.name }} | uWSGI config"
+  ansible.builtin.template:
+    src: uwsgi.ini.j2
+    dest: "{{ app_dir }}/{{ svc.name }}.ini"
+    owner: "{{ roboshop_user }}"
+    mode: "0644"
+  register: py_ini
+
+- name: "{{ svc.name }} | virtualenv with pinned deps"
+  ansible.builtin.pip:
+    requirements: "{{ app_dir }}/requirements.lock.txt"
+    virtualenv: "{{ app_dir }}/venv"
+    virtualenv_command: /usr/bin/python3 -m venv
+  become_user: "{{ roboshop_user }}"
+  register: py_venv
+
+- name: "{{ svc.name }} | remember whether the app changed"
+  ansible.builtin.set_fact:
+    app_changed: "{{ py_src.changed or py_req.changed or py_ini.changed or py_venv.changed }}"

@@ -1,0 +1,46 @@
+---
+- name: Static site
+  ansible.builtin.copy:
+    src: "{{ roboshop_app_src }}/web/static/"
+    dest: "{{ web_root }}/"
+    remote_src: true
+    mode: "u=rwX,go=rX"
+
+- name: eum.html placeholder (upstream entrypoint.sh does this)
+  ansible.builtin.copy:
+    src: "{{ web_root }}/empty.html"
+    dest: "{{ web_root }}/eum.html"
+    remote_src: true
+    mode: "0644"
+
+- name: SELinux label for the web root
+  community.general.sefcontext:
+    target: "{{ web_root }}(/.*)?"
+    setype: httpd_sys_content_t
+  register: web_fcontext
+  when: ansible_selinux.status == "enabled"
+
+- name: Apply SELinux labels
+  ansible.builtin.command: restorecon -R {{ web_root }}
+  when: web_fcontext is changed
+
+- name: nginx main config
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+    mode: "0644"
+    validate: nginx -t -c %s
+  notify: Reload nginx
+
+- name: RoboShop site config
+  ansible.builtin.template:
+    src: roboshop.conf.j2
+    dest: /etc/nginx/conf.d/roboshop.conf
+    mode: "0644"
+  notify: Reload nginx
+
+- name: nginx enabled and running
+  ansible.builtin.systemd:
+    name: nginx
+    enabled: true
+    state: started

@@ -1,0 +1,3 @@
+# Only for hosts in the 'dev' group. Beats group_vars/all.yml.
+env_name: dev
+web_banner: "RoboShop DEV (legacy)"

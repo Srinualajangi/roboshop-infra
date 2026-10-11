@@ -1,0 +1,35 @@
+---
+- name: "{{ svc.name }} | app directory"
+  ansible.builtin.file:
+    path: "{{ app_dir }}"
+    state: directory
+    owner: "{{ roboshop_user }}"
+    group: "{{ roboshop_user }}"
+    mode: "0755"
+
+- name: "{{ svc.name }} | build and install ({{ svc.type }})"
+  ansible.builtin.include_tasks: "build_{{ svc.type }}.yml"
+
+- name: "{{ svc.name }} | systemd unit"
+  ansible.builtin.template:
+    src: roboshop-service.service.j2
+    dest: "/etc/systemd/system/roboshop-{{ svc.name }}.service"
+    mode: "0644"
+  register: unit
+
+- name: "{{ svc.name }} | enabled and running (restart only if unit or app changed)"
+  ansible.builtin.systemd:
+    name: "roboshop-{{ svc.name }}"
+    enabled: true
+    state: "{{ 'restarted' if (unit.changed or app_changed | default(false)) else 'started' }}"
+    daemon_reload: "{{ unit.changed }}"
+
+- name: "{{ svc.name }} | wait for health endpoint"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ svc.port }}{{ svc.health | default(health_path) }}"
+    status_code: 200
+  register: health
+  until: health.status == 200
+  retries: 30
+  delay: 3
+  when: svc.port is defined

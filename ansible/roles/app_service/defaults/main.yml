@@ -1,0 +1,8 @@
+---
+# Default start command per service type; a service can override with 'exec'.
+app_exec_defaults:
+  node: /usr/bin/node server.js
+  java: /usr/bin/java -Xmn256m -Xmx768m -jar {{ roboshop_root }}/{{ svc.name }}/{{ svc.name }}.jar
+  python: "{{ roboshop_root }}/{{ svc.name }}/venv/bin/uwsgi --ini {{ svc.name }}.ini"
+  go: "{{ roboshop_root }}/{{ svc.name }}/{{ svc.name }}"
+health_path: /health

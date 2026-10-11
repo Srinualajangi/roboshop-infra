@@ -1,0 +1,141 @@
+# .github/workflows/terraform.yml — static checks + plan on PR (read-only), approved apply of 10-foundation on main.
+name: terraform
+
+on:
+  pull_request:
+    paths: ['terraform/**', '.github/workflows/terraform.yml', '.tflint.hcl', '.checkov.yaml']
+  push:
+    branches: [main]
+    paths: ['terraform/10-foundation/**', '.github/workflows/terraform.yml']
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: "1.0.0"          # ← same as TERRAFORM_VERSION in workstation/versions.env
+  TF_IN_AUTOMATION: "true"
+  AWS_REGION: us-east-1
+
+jobs:
+  static:
+    name: fmt · validate · tflint · checkov
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff terraform
+      - name: terraform validate (every layer, no backend)
+        run: |
+          for d in terraform/*/; do
+            echo "== $d"; terraform -chdir="$d" init -backend=false -input=false >/dev/null
+            terraform -chdir="$d" validate -no-color
+          done
+      - uses: terraform-linters/setup-tflint@v4
+      - name: tflint
+        env:
+          GITHUB_TOKEN: ${{ github.token }}   # avoids GitHub API rate limits when downloading the plugin
+        run: |
+          tflint --init --config "$GITHUB_WORKSPACE/.tflint.hcl"
+          tflint --recursive --config "$GITHUB_WORKSPACE/.tflint.hcl" --format compact
+      - name: checkov
+        run: pipx run checkov -d terraform --config-file .checkov.yaml
+
+  plan:
+    name: plan (${{ matrix.layer }})
+    if: github.event_name == 'pull_request'
+    needs: static
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        layer: [10-foundation, 20-workstation]   # never 00-bootstrap
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_TF_PLAN_ROLE_ARN }}
+          aws-region: us-east-1
+          role-duration-seconds: 900
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: Lab SSH public key for 20-workstation
+        env:
+          KEY: ${{ vars.LAB_SSH_PUBLIC_KEY }}
+        run: echo "$KEY" > "$RUNNER_TEMP/lab.pub"
+      - name: init + plan
+        id: plan
+        env:
+          TF_VAR_ssh_public_key_path: ${{ runner.temp }}/lab.pub
+          LAYER: ${{ matrix.layer }}
+        run: |
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          terraform -chdir="terraform/$LAYER" init -input=false -backend-config="bucket=roboshop-tfstate-$ACCOUNT"
+          set +e
+          terraform -chdir="terraform/$LAYER" plan -input=false -no-color -lock-timeout=120s -detailed-exitcode > plan.txt 2>&1
+          ec=$?
+          set -e
+          echo "exitcode=$ec" >> "$GITHUB_OUTPUT"
+          cat plan.txt
+          [ "$ec" -ne 1 ]          # 0 = no changes, 2 = changes, 1 = error
+      - name: Comment the plan on the PR
+        if: always() && steps.plan.outputs.exitcode != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          LAYER: ${{ matrix.layer }}
+          EC: ${{ steps.plan.outputs.exitcode }}
+        run: |
+          case "$EC" in 0) s="✅ no changes";; 2) s="📝 changes";; *) s="❌ error";; esac
+          {
+            echo "### Terraform plan — \`$LAYER\` — $s"
+            echo "<details><summary>Show plan</summary>"
+            echo
+            echo '```'
+            grep -E '^(  [+~-]|Plan:|No changes|Error)' plan.txt | tail -c 60000 || true
+            echo '```'
+            echo "</details>"
+            echo
+            echo "_run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID_"
+          } > comment.md
+          gh pr comment "$PR" --body-file comment.md
+
+  apply-foundation:
+    name: apply 10-foundation (approval required)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: static
+    runs-on: ubuntu-24.04
+    environment: foundation-apply        # → OIDC sub = repo:<you>/roboshop-infra:environment:foundation-apply
+    concurrency:
+      group: tf-10-foundation
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_TF_APPLY_ROLE_ARN }}
+          aws-region: us-east-1
+          role-duration-seconds: 1800
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: init, plan, apply the saved plan
+        run: |
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          cd terraform/10-foundation
+          terraform init -input=false -backend-config="bucket=roboshop-tfstate-$ACCOUNT"
+          terraform plan -input=false -no-color -lock-timeout=120s -out=tfplan
+          terraform apply -input=false -no-color tfplan
