@@ -19,6 +19,22 @@ chown ec2-user:ec2-user /home/ec2-user/.ssh/authorized_keys && chmod 600 /home/e
 printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin no\n' > /etc/ssh/sshd_config.d/00-roboshop.conf
 systemctl restart sshd
 
+# Expand workstation disk/LVM automatically
+
+dnf install -y cloud-utils-growpart lvm2 || true
+
+sleep 10
+
+growpart /dev/nvme0n1 4 || true
+
+partprobe /dev/nvme0n1 || true
+
+pvresize /dev/nvme0n1p4 || true
+
+lvextend -l +100%FREE -r /dev/RootVG/varVol || true
+
+df -h /var || true
+
 # 4. Hand over to the bootstrap script in Git
 TOKEN=$(curl -sX PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 300')
 IID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
