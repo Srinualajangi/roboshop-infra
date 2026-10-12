@@ -7,7 +7,7 @@ git config --global user.email "$GIT_EMAIL"
 git config --global init.defaultBranch main
 git config --global pull.ff only
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
-ssh-keyscan -t ed25519 github.com 2>/dev/null >> ~/.ssh/known_hosts
+ssh-keyscan github.com 2>/dev/null >> ~/.ssh/known_hosts || true
 
 mkdir -p ~/work && cd ~/work
 for r in roboshop-infra roboshop-app roboshop-gitops jenkins-shared-library; do
